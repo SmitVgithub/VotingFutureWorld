@@ -47,7 +47,7 @@ const HomepageHeading = ({ mobile }) => (
 			<Header as="h4" style={{ color: 'grey' }}>
 				Register/ Sign in for the company
 			</Header>
-			<Link route="./company_login">
+			<Link route="/company_login">
 				<Button primary size="huge" style={{ color: 'white', backgroundColor: '#627eea' }}>
 					<Icon name="left arrow" />
 					Company
@@ -86,9 +86,22 @@ class DesktopContainer extends Component {
 
 		return (
 			<Responsive>
-				<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.css" />
+				<link
+					rel="stylesheet"
+					href="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.css"
+					integrity="sha384-JKIDqM48bt14NZpzl9v0AP36v/bJ+oEuJhyh5bH8dQav/YMnqFjzBPCfcjiXE5Rf"
+					crossOrigin="anonymous"
+				/>
 				<Helmet>
 					<title>HomePage</title>
+					<meta httpEquiv="X-Content-Type-Options" content="nosniff" />
+					<meta httpEquiv="X-Frame-Options" content="DENY" />
+					<meta httpEquiv="X-XSS-Protection" content="1; mode=block" />
+					<meta name="referrer" content="strict-origin-when-cross-origin" />
+					<meta
+						httpEquiv="Content-Security-Policy"
+						content="default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; font-src 'self' https://cdn.jsdelivr.net data:; script-src 'self'; connect-src 'self';"
+					/>
 					<link rel="shortcut icon" type="image/x-icon" href="../../static/logo3.png" />
 				</Helmet>
 				<Visibility once={false} onBottomPassed={this.showFixedMenu} onBottomPassedReverse={this.hideFixedMenu}>
