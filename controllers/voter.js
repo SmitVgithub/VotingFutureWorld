@@ -1,283 +1,338 @@
 const VoterModel = require('../models/voter');
-
 const bcrypt = require('bcrypt');
-
 const path = require('path');
-
-var nodemailer = require('nodemailer');
+const nodemailer = require('nodemailer');
+const validator = require('validator');
+const crypto = require('crypto');
 
 const saltRounds = 10;
+const BASE_URL = process.env.BASE_URL || 'https://localhost:3000';
+
+// Helper function to sanitize string input
+function sanitizeString(input) {
+	if (typeof input !== 'string') {
+		return '';
+	}
+	return validator.escape(input.trim());
+}
+
+// Helper function to validate email
+function isValidEmail(email) {
+	return typeof email === 'string' && validator.isEmail(email);
+}
+
+// Helper function to generate secure random password
+function generateSecurePassword() {
+	return crypto.randomBytes(16).toString('hex');
+}
+
+// Helper function to create transporter
+function createTransporter() {
+	return nodemailer.createTransport({
+		service: 'gmail',
+		auth: {
+			user: process.env.EMAIL,
+			pass: process.env.PASSWORD,
+		},
+	});
+}
 
 module.exports = {
-	create: function (req, res, cb) {
-		VoterModel.findOne(
-			{ email: req.body.email, election_address: req.body.election_address },
-			function (err, result) {
+	create: async function (req, res, cb) {
+		try {
+			const email = req.body.email;
+			const electionAddress = req.body.election_address;
+			const electionDescription = req.body.election_description;
+			const electionName = req.body.election_name;
+
+			// Input validation
+			if (!isValidEmail(email)) {
+				return res.json({ status: 'error', message: 'Invalid email address', data: null });
+			}
+
+			if (!electionAddress || typeof electionAddress !== 'string') {
+				return res.json({ status: 'error', message: 'Invalid election address', data: null });
+			}
+
+			const sanitizedEmail = validator.normalizeEmail(email);
+			const sanitizedElectionAddress = sanitizeString(electionAddress);
+			const sanitizedDescription = sanitizeString(electionDescription || '');
+			const sanitizedElectionName = sanitizeString(electionName || '');
+
+			const existingVoter = await VoterModel.findOne({
+				email: sanitizedEmail,
+				election_address: sanitizedElectionAddress,
+			});
+
+			if (existingVoter) {
+				return res.json({ status: 'error', message: 'Voter already exists', data: null });
+			}
+
+			// Generate secure random password
+			const plainPassword = generateSecurePassword();
+			const hashedPassword = await bcrypt.hash(plainPassword, saltRounds);
+
+			const voter = await VoterModel.create({
+				email: sanitizedEmail,
+				password: hashedPassword,
+				election_address: sanitizedElectionAddress,
+			});
+
+			const transporter = createTransporter();
+
+			const mailOptions = {
+				from: process.env.EMAIL,
+				to: voter.email,
+				subject: sanitizedElectionName,
+				html:
+					sanitizedDescription +
+					'<br>Your voting id is: ' +
+					voter.email +
+					'<br>Your temporary password is: ' +
+					plainPassword +
+					'<br>Please change your password after first login.' +
+					'<br><a href="' + BASE_URL + '/homepage">Click here to visit the website</a>',
+			};
+
+			transporter.sendMail(mailOptions, function (err, info) {
 				if (err) {
-					cb(err);
-				} else {
-					if (!result) {
-						VoterModel.create(
-							{
-								email: req.body.email,
-								password: req.body.email,
-								election_address: req.body.election_address,
-							},
-							function (err, voter) {
-								if (err) cb(err);
-								else {
-									console.log(voter);
-
-									console.log(voter.email);
-
-									console.log(req.body.election_description);
-
-									console.log(req.body.election_name);
-
-									var transporter = nodemailer.createTransport({
-										service: 'gmail',
-
-										auth: {
-											user: process.env.EMAIL,
-
-											pass: process.env.PASSWORD,
-										},
-									});
-
-									const mailOptions = {
-										from: process.env.EMAIL, // sender address
-
-										to: voter.email, // list of receivers
-
-										subject: req.body.election_name, // Subject line
-
-										html:
-											req.body.election_description +
-											'<br>Your voting id is:' +
-											voter.email +
-											'<br>' +
-											'Your password is:' +
-											voter.password +
-											'<br><a href="http://localhost:3000/homepage">Click here to visit the website</a>', // plain text body
-									};
-
-									transporter.sendMail(mailOptions, function (err, info) {
-										if (err) {
-											res.json({
-												status: 'error',
-												message: 'Voter could not be added',
-												data: null,
-											});
-
-											console.log(err);
-										} else {
-											console.log(info);
-
-											res.json({
-												status: 'success',
-												message: 'Voter added successfully!!!',
-												data: null,
-											});
-										}
-									});
-								}
-							}
-						);
-					} else {
-						res.json({ status: 'error', message: 'Voter already exists ', data: null });
-					}
-				}
-			}
-		);
-	},
-
-	authenticate: function (req, res, cb) {
-		VoterModel.findOne({ email: req.body.email, password: req.body.password }, function (err, voterInfo) {
-			if (err) cb(err);
-			else {
-				if (voterInfo)
-					res.json({
-						status: 'success',
-						message: 'voter found!!!',
-						data: { id: voterInfo._id, election_address: voterInfo.election_address },
+					console.error('Email sending failed');
+					return res.json({
+						status: 'error',
+						message: 'Voter could not be added',
+						data: null,
 					});
-				//res.sendFile(path.join(__dirname+'/index.html'));
-				else {
-					res.json({ status: 'error', message: 'Invalid email/password!!!', data: null });
 				}
-			}
-		});
-	},
-
-	getAll: function (req, res, cb) {
-		let voterList = [];
-
-		VoterModel.find({ election_address: req.body.election_address }, function (err, voters) {
-			if (err) cb(err);
-			else {
-				for (let voter of voters) voterList.push({ id: voter._id, email: voter.email });
-
-				count = voterList.length;
-
-				res.json({
+				return res.json({
 					status: 'success',
-					message: 'voters list found!!!',
-					data: { voters: voterList },
-					count: count,
+					message: 'Voter added successfully!!!',
+					data: null,
 				});
-			}
-		});
+			});
+		} catch (err) {
+			return cb(err);
+		}
 	},
 
-	updateById: function (req, res, cb) {
-		VoterModel.findOne({ email: req.body.email }, function (err, result) {
-			if (err) {
-				cb(err);
+	authenticate: async function (req, res, cb) {
+		try {
+			const email = req.body.email;
+			const password = req.body.password;
+
+			// Input validation
+			if (!isValidEmail(email)) {
+				return res.json({ status: 'error', message: 'Invalid email/password!!!', data: null });
+			}
+
+			if (!password || typeof password !== 'string') {
+				return res.json({ status: 'error', message: 'Invalid email/password!!!', data: null });
+			}
+
+			const sanitizedEmail = validator.normalizeEmail(email);
+
+			const voterInfo = await VoterModel.findOne({ email: sanitizedEmail });
+
+			if (!voterInfo) {
+				return res.json({ status: 'error', message: 'Invalid email/password!!!', data: null });
+			}
+
+			const isPasswordValid = await bcrypt.compare(password, voterInfo.password);
+
+			if (isPasswordValid) {
+				return res.json({
+					status: 'success',
+					message: 'voter found!!!',
+					data: { id: voterInfo._id, election_address: voterInfo.election_address },
+				});
 			} else {
-				console.log('email:' + req.body.email);
-				console.log('findOne:' + result);
-				if (!result) {
-					password = bcrypt.hashSync(req.body.email, saltRounds);
-					console.log('email not found');
-					console.log('voterID:' + req.params.voterId);
-					VoterModel.findByIdAndUpdate(
-						req.params.voterId,
-						{ email: req.body.email, password: password },
-						function (err, voter) {
-							if (err) cb(err);
-							console.log('update method object:' + voter);
-						}
-					);
-					VoterModel.findById(req.params.voterId, function (err, voterInfo) {
-						if (err) cb(err);
-						else {
-							console.log('Inside find after update' + voterInfo);
-							var transporter = nodemailer.createTransport({
-								service: 'gmail',
-								auth: {
-									user: process.env.EMAIL,
-									pass: process.env.PASSWORD,
-								},
-							});
-							const mailOptions = {
-								from: process.env.EMAIL, // sender address
-								to: voterInfo.email, // list of receivers
-								subject: req.body.election_name, // Subject line
-								html:
-									req.body.election_description +
-									'<br>Your voting id is:' +
-									voterInfo.email +
-									'<br>' +
-									'Your password is:' +
-									voterInfo.password +
-									'<br><a href="url">Click here to visit the website</a>', // plain text body
-							};
-							transporter.sendMail(mailOptions, function (err, info) {
-								if (err) {
-									res.json({ status: 'error', message: 'Voter could not be added', data: null });
-									console.log(err);
-								} else {
-									console.log(info);
-									res.json({
-										status: 'success',
-										message: 'Voter updated successfully!!!',
-										data: null,
-									});
-								}
-							});
-						}
-					});
-				} else {
-					res.json({ status: 'error', message: 'Voter already exists ', data: null });
-				}
+				return res.json({ status: 'error', message: 'Invalid email/password!!!', data: null });
 			}
-		});
+		} catch (err) {
+			return cb(err);
+		}
 	},
 
-	deleteById: function (req, res, cb) {
-		VoterModel.findByIdAndRemove(req.params.voterId, function (err, voterInfo) {
-			if (err) cb(err);
-			else {
-				res.json({ status: 'success', message: 'voter deleted successfully!!!', data: null });
+	getAll: async function (req, res, cb) {
+		try {
+			const electionAddress = req.body.election_address;
+
+			if (!electionAddress || typeof electionAddress !== 'string') {
+				return res.json({ status: 'error', message: 'Invalid election address', data: null });
 			}
-		});
+
+			const sanitizedElectionAddress = sanitizeString(electionAddress);
+
+			const voters = await VoterModel.find({ election_address: sanitizedElectionAddress });
+
+			const voterList = voters.map((voter) => ({ id: voter._id, email: voter.email }));
+
+			return res.json({
+				status: 'success',
+				message: 'voters list found!!!',
+				data: { voters: voterList },
+				count: voterList.length,
+			});
+		} catch (err) {
+			return cb(err);
+		}
 	},
 
-	resultMail: function (req, res, cb) {
-		VoterModel.find({ election_address: req.body.election_address }, function (err, voters) {
-			if (err) cb(err);
-			else {
-				const election_name = req.body.election_name;
+	updateById: async function (req, res, cb) {
+		try {
+			const email = req.body.email;
+			const voterId = req.params.voterId;
+			const electionDescription = req.body.election_description;
+			const electionName = req.body.election_name;
 
-				const winner_candidate = req.body.winner_candidate;
+			// Input validation
+			if (!isValidEmail(email)) {
+				return res.json({ status: 'error', message: 'Invalid email address', data: null });
+			}
 
-				for (let voter of voters) {
-					var transporter = nodemailer.createTransport({
-						service: 'gmail',
+			if (!voterId || typeof voterId !== 'string') {
+				return res.json({ status: 'error', message: 'Invalid voter ID', data: null });
+			}
 
-						auth: {
-							user: process.env.EMAIL,
+			const sanitizedEmail = validator.normalizeEmail(email);
+			const sanitizedDescription = sanitizeString(electionDescription || '');
+			const sanitizedElectionName = sanitizeString(electionName || '');
 
-							pass: process.env.PASSWORD,
-						},
-					});
+			const existingVoter = await VoterModel.findOne({ email: sanitizedEmail });
 
-					const mailOptions = {
-						from: process.env.EMAIL, // sender address
+			if (existingVoter) {
+				return res.json({ status: 'error', message: 'Voter already exists', data: null });
+			}
 
-						to: voter.email, // list of receivers
+			// Generate secure random password
+			const plainPassword = generateSecurePassword();
+			const hashedPassword = await bcrypt.hash(plainPassword, saltRounds);
 
-						subject: election_name + ' results', // Subject line
+			const updatedVoter = await VoterModel.findByIdAndUpdate(
+				voterId,
+				{ email: sanitizedEmail, password: hashedPassword },
+				{ new: true }
+			);
 
-						html:
-							'The results of ' +
-							election_name +
-							' are out.<br>The winner candidate is: <b>' +
-							winner_candidate +
-							'</b>.',
-					};
+			if (!updatedVoter) {
+				return res.json({ status: 'error', message: 'Voter not found', data: null });
+			}
 
-					transporter.sendMail(mailOptions, function (err, info) {
-						if (err) {
-							res.json({ status: 'error', message: 'mail error', data: null });
+			const transporter = createTransporter();
 
-							console.log(err);
-						} else console.log(info);
+			const mailOptions = {
+				from: process.env.EMAIL,
+				to: updatedVoter.email,
+				subject: sanitizedElectionName,
+				html:
+					sanitizedDescription +
+					'<br>Your voting id is: ' +
+					updatedVoter.email +
+					'<br>Your temporary password is: ' +
+					plainPassword +
+					'<br>Please change your password after first login.' +
+					'<br><a href="' + BASE_URL + '">Click here to visit the website</a>',
+			};
 
-						res.json({ status: 'success', message: 'mails sent successfully!!!', data: null });
-					});
+			transporter.sendMail(mailOptions, function (err, info) {
+				if (err) {
+					console.error('Email sending failed');
+					return res.json({ status: 'error', message: 'Voter could not be updated', data: null });
 				}
-
-				var transporter = nodemailer.createTransport({
-					service: 'gmail',
-
-					auth: {
-						user: process.env.EMAIL,
-
-						pass: process.env.PASSWORD,
-					},
+				return res.json({
+					status: 'success',
+					message: 'Voter updated successfully!!!',
+					data: null,
 				});
+			});
+		} catch (err) {
+			return cb(err);
+		}
+	},
 
+	deleteById: async function (req, res, cb) {
+		try {
+			const voterId = req.params.voterId;
+
+			if (!voterId || typeof voterId !== 'string') {
+				return res.json({ status: 'error', message: 'Invalid voter ID', data: null });
+			}
+
+			await VoterModel.findByIdAndRemove(voterId);
+
+			return res.json({ status: 'success', message: 'voter deleted successfully!!!', data: null });
+		} catch (err) {
+			return cb(err);
+		}
+	},
+
+	resultMail: async function (req, res, cb) {
+		try {
+			const electionAddress = req.body.election_address;
+			const electionName = req.body.election_name;
+			const winnerCandidate = req.body.winner_candidate;
+			const candidateEmail = req.body.candidate_email;
+
+			// Input validation
+			if (!electionAddress || typeof electionAddress !== 'string') {
+				return res.json({ status: 'error', message: 'Invalid election address', data: null });
+			}
+
+			if (!isValidEmail(candidateEmail)) {
+				return res.json({ status: 'error', message: 'Invalid candidate email', data: null });
+			}
+
+			const sanitizedElectionAddress = sanitizeString(electionAddress);
+			const sanitizedElectionName = sanitizeString(electionName || '');
+			const sanitizedWinnerCandidate = sanitizeString(winnerCandidate || '');
+			const sanitizedCandidateEmail = validator.normalizeEmail(candidateEmail);
+
+			const voters = await VoterModel.find({ election_address: sanitizedElectionAddress });
+
+			const transporter = createTransporter();
+
+			// Send emails to all voters
+			const voterEmailPromises = voters.map((voter) => {
 				const mailOptions = {
-					from: process.env.EMAIL, // sender address
-
-					to: req.body.candidate_email, // list of receivers
-
-					subject: req.body.election_name + ' results !!!', // Subject line
-
-					html: 'Congratulations you won ' + req.body.election_name + ' election.', // plain text body
+					from: process.env.EMAIL,
+					to: voter.email,
+					subject: sanitizedElectionName + ' results',
+					html:
+						'The results of ' +
+						sanitizedElectionName +
+						' are out.<br>The winner candidate is: <b>' +
+						sanitizedWinnerCandidate +
+						'</b>.',
 				};
 
-				transporter.sendMail(mailOptions, function (err, info) {
-					if (err) {
-						res.json({ status: 'error', message: 'mail error', data: null });
-
-						console.log(err);
-					} else console.log(info);
-
-					res.json({ status: 'success', message: 'mail sent successfully!!!', data: null });
+				return new Promise((resolve, reject) => {
+					transporter.sendMail(mailOptions, (err, info) => {
+						if (err) reject(err);
+						else resolve(info);
+					});
 				});
-			}
-		});
+			});
+
+			// Send email to winner
+			const winnerMailOptions = {
+				from: process.env.EMAIL,
+				to: sanitizedCandidateEmail,
+				subject: sanitizedElectionName + ' results !!!',
+				html: 'Congratulations you won ' + sanitizedElectionName + ' election.',
+			};
+
+			const winnerEmailPromise = new Promise((resolve, reject) => {
+				transporter.sendMail(winnerMailOptions, (err, info) => {
+					if (err) reject(err);
+					else resolve(info);
+				});
+			});
+
+			await Promise.all([...voterEmailPromises, winnerEmailPromise]);
+
+			return res.json({ status: 'success', message: 'mails sent successfully!!!', data: null });
+		} catch (err) {
+			console.error('Email sending failed');
+			return res.json({ status: 'error', message: 'mail error', data: null });
+		}
 	},
 };
