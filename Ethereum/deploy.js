@@ -3,9 +3,17 @@ const HDWalletProvider = require('truffle-hdwallet-provider');
 const Web3 = require('web3');
 const eF = require('./Build/ElectionFact.json');
 
+// Validate required environment variables
+if (!process.env.WALLET_MNEMONIC) {
+	throw new Error('WALLET_MNEMONIC environment variable is required');
+}
+if (!process.env.INFURA_URL) {
+	throw new Error('INFURA_URL environment variable is required');
+}
+
 const provider = new HDWalletProvider(
-	'soda primary wheel try parrot such unfair swarm obvious collect tobacco blouse',
-	'https://rinkeby.infura.io/v3/29bcae4ee7454a118a2b0f0f4d86c0e0'
+	process.env.WALLET_MNEMONIC,
+	process.env.INFURA_URL
 );
 const web3 = new Web3(provider);
 
