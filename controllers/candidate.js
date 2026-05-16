@@ -1,27 +1,61 @@
 const path = require('path');
-var nodemailer = require('nodemailer');
+const nodemailer = require('nodemailer');
+
+// Simple email validation regex
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// HTML escape function to prevent injection
+function escapeHtml(text) {
+	if (!text) return '';
+	const map = {
+		'&': '&amp;',
+		'<': '&lt;',
+		'>': '&gt;',
+		'"': '&quot;',
+		"'": '&#039;',
+	};
+	return String(text).replace(/[&<>"']/g, (m) => map[m]);
+}
 
 module.exports = {
 	register: function (req, res, cb) {
+		// Validate email format
+		const recipientEmail = req.body.email;
+		if (!recipientEmail || !EMAIL_REGEX.test(recipientEmail)) {
+			return res.json({ status: 'error', message: 'Invalid email address', data: null });
+		}
+
+		// Validate election_name exists
+		const electionName = req.body.election_name;
+		if (!electionName || typeof electionName !== 'string') {
+			return res.json({ status: 'error', message: 'Invalid election name', data: null });
+		}
+
 		var transporter = nodemailer.createTransport({
 			service: 'gmail',
 			auth: {
-				user: st@gmail.com,
-				pass: SThifn@94840mdia,
+				user: process.env.EMAIL_USER,
+				pass: process.env.EMAIL_PASS,
 			},
 		});
+
+		// Sanitize user input for HTML content
+		const sanitizedElectionName = escapeHtml(electionName);
+
 		const mailOptions = {
 			from: process.env.EMAIL,
-			to: req.body.email,
-			subject: req.body.election_name + 'Registration',
-			html: 'Congrats you have been registered for  ' + req.body.election_name + ' election.',
+			to: recipientEmail,
+			subject: sanitizedElectionName + ' Registration',
+			html: 'Congrats you have been registered for ' + sanitizedElectionName + ' election.',
 		};
 		transporter.sendMail(mailOptions, function (err, info) {
 			if (err) {
 				res.json({ status: 'error', message: 'mail error', data: null });
 				console.log(err);
-			} else console.log(info);
-			res.json({ status: 'success', message: 'mail sent successfully!!!', data: null });
+			} else {
+				console.log(info);
+				res.json({ status: 'success', message: 'mail sent successfully!!!', data: null });
+			}
 		});
 	},
 };
