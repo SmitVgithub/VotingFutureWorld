@@ -1,2 +1,7 @@
-const withCSS = require('@zeit/next-css')
-module.exports = withCSS()
+/**
+ * Configure webpack for GLTF/GLB file handling
+ */
+
+// TODO: Implement next.config.js
+
+module.exports = {};
